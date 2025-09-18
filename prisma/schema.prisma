@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Enums ---
+enum user_role {
+  reader
+  author
+}
+
+// --- USERS ---
+model users {
+  id            String    @id @db.Uuid @default(uuid())   // Prisma sinh UUID
+  email         String    @unique
+  name          String
+  role          user_role @default(reader)
+  password_hash String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  // Quan hệ
+  articles      articles[]
+}
+
+// --- CATEGORIES ---
+model categories {
+  id         BigInt      @id @default(autoincrement())
+  name       String
+  slug       String      @unique
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  // Quan hệ
+  articles   articles[]
+}
+
+// --- ARTICLES ---
+model articles {
+  id            BigInt    @id @default(autoincrement())
+  slug          String    @unique
+  title         String
+  summary       String?
+  content       String
+  image_url     String?   // ảnh đại diện (cover/thumbnail)
+  priority      Int       @default(0)
+  published_at  DateTime  @default(now())
+  category_id   BigInt
+  author_id     String    @db.Uuid
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  // Quan hệ
+  category      categories @relation(fields: [category_id], references: [id])
+  author        users      @relation(fields: [author_id], references: [id])
+
+  // Index tối ưu cho feed và lọc
+  @@index([category_id, published_at(sort: Desc), priority(sort: Desc)], name: "idx_articles_by_category_date")
+  @@index([published_at(sort: Desc), priority(sort: Desc)],            name: "idx_articles_feed")
+  @@index([author_id, published_at(sort: Desc)],                       name: "idx_articles_by_author_date")
+}
