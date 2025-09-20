@@ -13,7 +13,7 @@ interface JWTPayload {
 export async function GET(request: NextRequest) {
   try {
     // Lấy token từ cookie hoặc header
-    const token = request.cookies.get('auth-token')?.value || 
+    const token = request.cookies.get('token')?.value || 
                   request.headers.get('Authorization')?.replace('Bearer ', '')
 
     if (!token) {

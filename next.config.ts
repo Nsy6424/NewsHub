@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      // Cho phép load ảnh local qua Next Image (http://localhost:3000/uploads/...)
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/uploads/**',
+      },
     ],
   },
 };

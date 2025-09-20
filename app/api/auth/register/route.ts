@@ -26,10 +26,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Kiểm tra password length
-    if (password.length < 6) {
+    // Kiểm tra độ mạnh mật khẩu: tối thiểu 6 ký tự, có ít nhất 1 chữ HOA, 1 ký tự đặc biệt
+    const hasMinLength = password.length >= 6
+    const hasUppercase = /[A-Z]/.test(password)
+    const hasSpecial = /[^A-Za-z0-9]/.test(password)
+    if (!hasMinLength || !hasUppercase || !hasSpecial) {
       return NextResponse.json(
-        { error: 'Mật khẩu phải có ít nhất 6 ký tự' },
+        { error: 'Mật khẩu phải ≥6 ký tự, có ít nhất 1 chữ hoa và 1 ký tự đặc biệt' },
         { status: 400 }
       )
     }

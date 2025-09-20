@@ -33,6 +33,8 @@ interface Category {
 
 interface ArticlesResponse {
   articles: Article[];
+  featured: Article[];
+  latest: Article[];
   pagination: {
     page: number;
     limit: number;
@@ -48,11 +50,44 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
+  const [featuredArticles, setFeaturedArticles] = useState<Article[]>([]);
+  const [latestArticles, setLatestArticles] = useState<Article[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; email: string; role: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [limit] = useState(11);
+
+  // Tính danh sách trang hiển thị dạng: < 1 2 3 ... 8 9 10 >
+  const visiblePages = useMemo(() => {
+    const items: (number | string)[] = []
+    const maxButtons = 7 // tổng item số hiển thị (không tính prev/next)
+    if (totalPages <= maxButtons) {
+      for (let i = 1; i <= totalPages; i++) items.push(i)
+      return items
+    }
+
+    const showLeft = 2
+    const showRight = 2
+    const middle = maxButtons - showLeft - showRight // 3
+
+    let start = Math.max(2, page - Math.floor(middle / 2))
+    let end = Math.min(totalPages - 1, start + middle - 1)
+
+    if (end - start + 1 < middle) {
+      start = Math.max(2, end - middle + 1)
+    }
+
+    items.push(1)
+    if (start > 2) items.push('...')
+    for (let i = start; i <= end; i++) items.push(i)
+    if (end < totalPages - 1) items.push('...')
+    items.push(totalPages)
+    return items
+  }, [page, totalPages])
 
   // Fetch categories khi component mount
   useEffect(() => {
@@ -73,12 +108,28 @@ export default function Home() {
 
   // Load user từ localStorage để hiển thị header
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('user');
-      if (raw) {
-        setCurrentUser(JSON.parse(raw));
+    const checkAuth = async () => {
+      try {
+        const raw = localStorage.getItem('user');
+        if (raw) {
+          setCurrentUser(JSON.parse(raw));
+        } else {
+          // Kiểm tra token từ cookie thông qua API
+          const response = await fetch('/api/auth/me');
+          if (response.ok) {
+            const userData = await response.json();
+            setCurrentUser(userData);
+            localStorage.setItem('user', JSON.stringify(userData));
+          }
+          // Nếu không có token hợp lệ, currentUser vẫn là null (hiển thị nút đăng nhập/đăng ký)
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        // Nếu có lỗi, currentUser vẫn là null (hiển thị nút đăng nhập/đăng ký)
       }
-    } catch {}
+    };
+
+    checkAuth();
   }, []);
 
   const handleLogout = async () => {
@@ -97,7 +148,12 @@ export default function Home() {
     return () => clearTimeout(id)
   }, [searchTerm])
 
-  // Fetch articles khi category hoặc search thay đổi
+  // Reset về trang 1 khi đổi danh mục hoặc từ khóa
+  useEffect(() => {
+    setPage(1)
+  }, [selectedCategory, debouncedSearchTerm])
+
+  // Fetch articles khi category, search hoặc page thay đổi
   useEffect(() => {
     const fetchArticles = async () => {
       setLoading(true);
@@ -111,27 +167,40 @@ export default function Home() {
         if (debouncedSearchTerm) {
           params.append('search', debouncedSearchTerm);
         }
+        params.append('page', String(page));
+        params.append('limit', String(limit));
 
         const response = await fetch(`/api/articles?${params}`);
         if (!response.ok) throw new Error('Failed to fetch articles');
         const data: ArticlesResponse = await response.json();
         setArticles(data.articles);
+        setFeaturedArticles(data.featured || []);
+        setLatestArticles(data.latest || []);
+        if (data.pagination) {
+          setTotalPages(data.pagination.totalPages || 1);
+        } else {
+          setTotalPages(1);
+        }
       } catch (err) {
         console.error('Error fetching articles:', err);
         setError('Không thể tải bài viết');
         setArticles([]);
+        setFeaturedArticles([]);
+        setLatestArticles([]);
+        setTotalPages(1);
       } finally {
         setLoading(false);
       }
     };
 
     fetchArticles();
-  }, [selectedCategory, debouncedSearchTerm]);
+  }, [selectedCategory, debouncedSearchTerm, page, limit]);
 
   // Đếm số bài viết theo category
   const getCategoryCount = (category: string) => {
     if (category === "Tất cả") {
-      return articles.length;
+      // Tổng số bài viết (không phụ thuộc trang hiện tại)
+      return categories.reduce((sum, cat) => sum + (cat._count?.articles || 0), 0)
     }
     return categories.find(cat => cat.name === category)?._count.articles || 0;
   };
@@ -151,6 +220,7 @@ export default function Home() {
     const date = new Date(dateString);
     return date.toLocaleDateString('vi-VN');
   };
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -193,7 +263,7 @@ export default function Home() {
             {/* Auth / User */}
             <div className="relative">
               {!currentUser ? (
-                <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4">
                   <Link href="/auth/login" className="px-4 py-2 text-gray-700 hover:text-blue-600 font-medium transition-colors">Đăng nhập</Link>
                   <Link href="/auth/register" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors">Đăng ký</Link>
                 </div>
@@ -257,9 +327,9 @@ export default function Home() {
             {selectedCategory === "Tất cả" ? "Tất cả tin tức" : `Tin tức ${selectedCategory}`}
           </h2>
           {searchTerm.trim() && !loading && !error && (
-            <p className="text-gray-600">
+          <p className="text-gray-600">
               {`Tìm thấy ${articles.length} bài viết cho "${searchTerm.trim()}"`}
-            </p>
+          </p>
           )}
         </div>
 
@@ -291,61 +361,60 @@ export default function Home() {
         {!loading && !error && articles.length > 0 ? (
           debouncedSearchTerm ? (
             // Chế độ tìm kiếm: chỉ hiển thị danh sách bài viết
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {articles.map((article) => (
-                <article key={article.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-                  <div className="relative h-48 bg-gray-200">
-                    <Image
-                      src={article.image_url || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=400&fit=crop"}
-                      alt={article.title}
-                      fill
+              <article key={article.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
+                <div className="relative h-48 bg-gray-200">
+                  <Image
+                      src={(article.image_url && !article.image_url.includes('your-image.jpg')) ? article.image_url : "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=400&fit=crop"}
+                    alt={article.title}
+                      width={800}
+                      height={400}
                       unoptimized
-                      className="object-cover"
-                    />
+                      className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="p-6">
+                  <div className="mb-3">
+                    <span className="inline-block px-3 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
+                      {article.category}
+                    </span>
                   </div>
-                  <div className="p-6">
-                    <div className="mb-3">
-                      <span className="inline-block px-3 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
-                        {article.category}
-                      </span>
-                    </div>
-                    <h3 className="mb-2">
+                  <h3 className="mb-2">
                       <Link href={`/articles/${article.id}`} className="text-lg font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-2">
-                        {article.title}
-                      </Link>
-                    </h3>
+                      {article.title}
+                    </Link>
+                  </h3>
                     <p className="text-gray-600 mb-4 line-clamp-3">{article.summary}</p>
-                    <div className="flex items-center text-sm text-gray-500">
-                      <span>{article.author}</span>
-                      <span className="mx-2">•</span>
-                      <span>{formatDate(article.published_at)}</span>
-                    </div>
+                  <div className="flex items-center text-sm text-gray-500">
+                    <span>{article.author}</span>
+                    <span className="mx-2">•</span>
+                    <span>{formatDate(article.published_at)}</span>
                   </div>
-                </article>
-              ))}
-            </div>
-          ) : (
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
             // Chế độ bình thường: Tin Nổi Bật + Tin Tức Mới Nhất
             <div className="space-y-10">
               {/* Tin Nổi Bật */}
               <section>
                 <h3 className="text-2xl font-bold text-gray-900 mb-4">Tin Nổi Bật</h3>
-                {(() => {
-                  const featured = [...articles]
-                    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
-                    .slice(0, 2)
-                  if (featured.length === 0) return <div className="text-gray-500">Chưa có tin nổi bật</div>
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {featured.map((article) => (
+                {featuredArticles.length === 0 ? (
+                  <div className="text-gray-500">Chưa có tin nổi bật</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {featuredArticles.map((article) => (
                         <article key={article.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
                           <div className="relative h-64 bg-gray-200">
                             <Image
-                              src={article.image_url || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&h=600&fit=crop"}
+                              src={(article.image_url && !article.image_url.includes('your-image.jpg')) ? article.image_url : "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&h=600&fit=crop"}
                               alt={article.title}
-                              fill
+                              width={1200}
+                              height={600}
                               unoptimized
-                              className="object-cover"
+                              className="w-full h-full object-cover"
                             />
                           </div>
                           <div className="p-6">
@@ -367,40 +436,28 @@ export default function Home() {
                             </div>
                           </div>
                         </article>
-                      ))}
-                    </div>
-                  )
-                })()}
+                    ))}
+                  </div>
+                )}
               </section>
 
               {/* Tin Tức Mới Nhất */}
               <section>
                 <h3 className="text-2xl font-bold text-gray-900 mb-4">Tin Tức Mới Nhất</h3>
-                {(() => {
-                  const usedIds = new Set(
-                    [...articles]
-                      .sort((a, b) => (b.priority || 0) - (a.priority || 0))
-                      .slice(0, 2)
-                      .map((x) => x.id)
-                  )
-                  const latest = articles
-                    .filter((a) => !usedIds.has(a.id))
-                    .sort((a, b) => {
-                      const da = new Date(a.updated_at || a.created_at || a.published_at).getTime()
-                      const db = new Date(b.updated_at || b.created_at || b.published_at).getTime()
-                      return db - da
-                    })
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {latest.map((article) => (
+                {latestArticles.length === 0 ? (
+                  <div className="text-gray-500">Chưa có tin tức mới</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {latestArticles.map((article) => (
                         <article key={article.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
                           <div className="relative h-48 bg-gray-200">
                             <Image
-                              src={article.image_url || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=400&fit=crop"}
+                              src={(article.image_url && !article.image_url.includes('your-image.jpg')) ? article.image_url : "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=400&fit=crop"}
                               alt={article.title}
-                              fill
+                              width={800}
+                              height={400}
                               unoptimized
-                              className="object-cover"
+                              className="w-full h-full object-cover"
                             />
                           </div>
                           <div className="p-6">
@@ -426,25 +483,63 @@ export default function Home() {
                             </div>
                           </div>
                         </article>
-                      ))}
-                    </div>
-                  )
-                })()}
+                    ))}
+                  </div>
+                )}
               </section>
             </div>
           )
         ) : (
           !loading && !error && (
-            <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">Không tìm thấy bài viết</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Thử thay đổi từ khóa tìm kiếm hoặc danh mục để xem thêm bài viết.
-              </p>
+          <div className="text-center py-12">
+            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900">Không tìm thấy bài viết</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Thử thay đổi từ khóa tìm kiếm hoặc danh mục để xem thêm bài viết.
+            </p>
             </div>
           )
+        )}
+
+        {/* Pagination */}
+        {!loading && !error && totalPages > 1 && (
+          <div className="mt-10 flex items-center justify-center">
+            <div className="flex items-center rounded-xl border border-gray-200 bg-white px-2 py-1.5 shadow-sm">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className={`mx-1 h-9 w-9 rounded-lg border flex items-center justify-center transition-colors ${page === 1 ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                aria-label="Trang trước"
+              >
+                <span className="text-base">‹</span>
+              </button>
+
+              {visiblePages.map((it, idx) => (
+                typeof it === 'number' ? (
+                  <button
+                    key={`p-${it}`}
+                    onClick={() => setPage(it)}
+                    className={`mx-1 min-w-9 h-9 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center ${page === it ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                  >
+                    {it}
+                  </button>
+                ) : (
+                  <span key={`dot-${idx}`} className="mx-1 h-9 w-9 rounded-lg border border-transparent flex items-center justify-center text-gray-400">…</span>
+                )
+              ))}
+
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className={`mx-1 h-9 w-9 rounded-lg border flex items-center justify-center transition-colors ${page === totalPages ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                aria-label="Trang sau"
+              >
+                <span className="text-base">›</span>
+              </button>
+            </div>
+          </div>
         )}
       </main>
     </div>

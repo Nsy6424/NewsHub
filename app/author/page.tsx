@@ -17,10 +17,34 @@ export default function AuthorDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [categories, setCategories] = useState<string[]>([])
+  const [totalCount, setTotalCount] = useState<number>(0)
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({})
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('Tất cả')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [limit] = useState(9)
+
+  // Tính danh sách trang hiển thị kiểu 1 2 3 ... 8 9 10
+  const visiblePages = useMemo(() => {
+    const items: (number | string)[] = []
+    const maxButtons = 7
+    if (totalPages <= maxButtons) {
+      for (let i = 1; i <= totalPages; i++) items.push(i)
+      return items
+    }
+    const middle = 3
+    let start = Math.max(2, page - Math.floor(middle / 2))
+    let end = Math.min(totalPages - 1, start + middle - 1)
+    if (end - start + 1 < middle) start = Math.max(2, end - middle + 1)
+    items.push(1)
+    if (start > 2) items.push('...')
+    for (let i = start; i <= end; i++) items.push(i)
+    if (end < totalPages - 1) items.push('...')
+    items.push(totalPages)
+    return items
+  }, [page, totalPages])
 
   // Sắp xếp để "Khác" luôn ở cuối
   const orderedCategories = useMemo(() => {
@@ -47,20 +71,43 @@ export default function AuthorDashboard() {
     }
   }, [])
 
+  // Debounce search để tránh gọi API liên tục
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 400)
+    return () => clearTimeout(id)
+  }, [search])
+
+  // Reset về trang 1 khi thay đổi bộ lọc/tìm kiếm
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, filterCategory])
+
   // Load các bài viết của author để hiển thị phía dưới
   useEffect(() => {
     const token = localStorage.getItem('token')
-    fetch(`/api/my-articles?page=${page}&limit=6`, { headers: { 'Authorization': `Bearer ${token || ''}` } })
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('limit', String(limit))
+    if (debouncedSearch) params.set('search', debouncedSearch)
+    if (filterCategory !== 'Tất cả') params.set('category', filterCategory)
+    fetch(`/api/my-articles?${params.toString()}`, { headers: { 'Authorization': `Bearer ${token || ''}` } })
       .then(async r => {
         const data = await r.json()
         if (!r.ok) throw new Error(data.error || 'Không thể tải bài viết')
         const mapped = (data.articles || []).map((a: any) => ({ id: a.id, title: a.title, published_at: a.published_at, category: a.category, image_url: a.image_url }))
         setItems(mapped)
         if (data.pagination?.totalPages) setTotalPages(data.pagination.totalPages)
+        // Cập nhật thống kê
+        if (data.stats) {
+          setTotalCount(data.stats.total_articles || 0)
+          const map: Record<string, number> = {}
+          ;(data.stats.by_category || []).forEach((s: any) => { map[s.category] = s.count })
+          setCategoryCounts(map)
+        }
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [page])
+  }, [page, limit, debouncedSearch, filterCategory])
 
   // Load categories từ DB để hiển thị ở bộ lọc
   useEffect(() => {
@@ -136,16 +183,15 @@ export default function AuthorDashboard() {
           </select>
         </div>
 
+        
+
         {/* List */}
         {loading && <div className="text-gray-600">Đang tải...</div>}
         {error && <div className="text-red-600">{error}</div>}
 
         {!loading && !error && (
           <div className="space-y-5">
-            {items
-              .filter(a => (filterCategory === 'Tất cả' || a.category === filterCategory))
-              .filter(a => (a.title + ' ' + a.category).toLowerCase().includes(search.toLowerCase()))
-              .map(a => (
+            {items.map(a => (
               <div key={a.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 pr-4">
@@ -183,23 +229,43 @@ export default function AuthorDashboard() {
             )}
 
             {/* Pagination */}
-            <div className="flex items-center justify-center space-x-2 pt-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg font-semibold text-gray-900"
-              >
-                Trang trước
-              </button>
-              <span className="text-sm text-gray-800 font-semibold">Trang {page}/{totalPages}</span>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg font-semibold text-gray-900"
-              >
-                Trang sau
-              </button>
-            </div>
+            {totalPages > 1 && (
+              <div className="pt-2 flex items-center justify-center">
+                <div className="flex items-center rounded-xl border border-gray-200 bg-white px-2 py-1.5 shadow-sm">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className={`mx-1 h-9 w-9 rounded-lg border flex items-center justify-center transition-colors ${page === 1 ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                    aria-label="Trang trước"
+                  >
+                    <span className="text-base">‹</span>
+                  </button>
+
+                  {visiblePages.map((it, idx) => (
+                    typeof it === 'number' ? (
+                      <button
+                        key={`p-${it}`}
+                        onClick={() => setPage(it)}
+                        className={`mx-1 min-w-9 h-9 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center ${page === it ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {it}
+                      </button>
+                    ) : (
+                      <span key={`dot-${idx}`} className="mx-1 h-9 w-9 rounded-lg border border-transparent flex items-center justify-center text-gray-400">…</span>
+                    )
+                  ))}
+
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className={`mx-1 h-9 w-9 rounded-lg border flex items-center justify-center transition-colors ${page === totalPages ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                    aria-label="Trang sau"
+                  >
+                    <span className="text-base">›</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

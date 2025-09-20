@@ -4,6 +4,11 @@ import { verifyAuthToken, isAuthor } from '@/lib/auth'
 
 const prisma = new PrismaClient()
 
+// Đảm bảo chạy trên Node.js runtime (Prisma không hỗ trợ Edge)
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -29,18 +34,31 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      const normalizedSearch = search
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
+      const term = search.trim()
+      if (term.length > 0) {
+        // Luôn tìm theo title không phân biệt hoa/thường
+        const orConditions: any[] = [
+          { title: { contains: term, mode: 'insensitive' } },
+        ]
 
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { summary: { contains: search, mode: 'insensitive' } },
-        { content: { contains: search, mode: 'insensitive' } },
-        // So khớp theo slug để hỗ trợ tìm không dấu/viết hoa thường
-        { slug: { contains: normalizedSearch.replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-'), mode: 'insensitive' } }
-      ]
+        // Chỉ thêm tìm không-dấu qua slug khi KHÔNG có dấu trong từ khóa
+        const nfd = term.normalize('NFD')
+        const hasDiacritics = /[\u0300-\u036f]/.test(nfd)
+        const onlyLettersAndSpaces = /^\p{L}[\p{L}\s]*$/u.test(term)
+        if (!hasDiacritics && onlyLettersAndSpaces) {
+          const normalized = nfd
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .trim()
+          if (normalized.length > 0) {
+            orConditions.push({ slug: { contains: normalized } })
+          }
+        }
+
+        where.OR = orConditions
+      }
     }
 
     // Lấy tổng số bài viết
@@ -77,32 +95,121 @@ export async function GET(request: NextRequest) {
       },
       orderBy: [
         { priority: 'desc' },
-        { published_at: 'desc' }
+        { created_at: 'desc' }
       ],
       skip: offset,
       take: limit
     })
 
+    // Lấy tin nổi bật (top priority) - riêng biệt
+    const featuredArticles = await prisma.articles.findMany({
+      where: {
+        ...where,
+        priority: { gt: 3 } // Chỉ lấy bài có priority > 3
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        summary: true,
+        image_url: true,
+        priority: true,
+        published_at: true,
+        created_at: true,
+        updated_at: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
+          }
+        },
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
+      orderBy: [
+        { priority: 'desc' }
+      ],
+      take: 2 // Chỉ lấy 2 bài nổi bật nhất
+    })
+
+    // Lấy tin mới nhất (theo created_at) - riêng biệt
+    const latestArticles = await prisma.articles.findMany({
+      where,
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        summary: true,
+        image_url: true,
+        priority: true,
+        published_at: true,
+        created_at: true,
+        updated_at: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
+          }
+        },
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
+      orderBy: [
+        { created_at: 'desc' }
+      ],
+      skip: offset,
+      take: 12 // Hiển thị 12 bài tin mới nhất
+    })
+
     // Format response + chuyển BigInt -> Number (không bao gồm content)
-    const formattedArticles = articles.map(article => ({
-      id: Number(article.id),
-      slug: article.slug,
-      title: article.title,
-      summary: article.summary,
-      // content: article.content, // Không hiển thị content trong danh sách
-      image_url: article.image_url,
-      priority: article.priority,
-      published_at: article.published_at.toISOString(),
-      created_at: article.created_at.toISOString(),
-      updated_at: article.updated_at.toISOString(),
-      category: article.category.name,
-      category_slug: article.category.slug,
-      author: article.author.name,
-      author_id: article.author.id
-    }))
+    const formatArticle = (article: any) => {
+      const publishedAtIso = article.published_at
+        ? new Date(article.published_at).toISOString()
+        : new Date(article.created_at).toISOString()
+      const createdAtIso = article.created_at
+        ? new Date(article.created_at).toISOString()
+        : publishedAtIso
+      const updatedAtIso = article.updated_at
+        ? new Date(article.updated_at).toISOString()
+        : createdAtIso
+
+      return {
+        id: Number(article.id),
+        slug: article.slug,
+        title: article.title,
+        summary: article.summary,
+        image_url: article.image_url,
+        priority: article.priority,
+        published_at: publishedAtIso,
+        created_at: createdAtIso,
+        updated_at: updatedAtIso,
+        category: article.category.name,
+        category_slug: article.category.slug,
+        author: article.author.name,
+        author_id: article.author.id
+      }
+    }
+
+    const formattedArticles = articles.map(formatArticle)
+    const formattedFeatured = featuredArticles.map(formatArticle)
+    const formattedLatest = latestArticles.map(formatArticle)
 
     return NextResponse.json({
       articles: formattedArticles,
+      featured: formattedFeatured,
+      latest: formattedLatest,
       pagination: {
         page,
         limit,

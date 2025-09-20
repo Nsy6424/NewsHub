@@ -31,6 +31,16 @@ export default function RegisterPage() {
     setLoading(true)
     setError('')
 
+    // Password strength validation (client-side)
+    const hasMinLength = formData.password.length >= 6
+    const hasUppercase = /[A-Z]/.test(formData.password)
+    const hasSpecial = /[^A-Za-z0-9]/.test(formData.password)
+    if (!hasMinLength || !hasUppercase || !hasSpecial) {
+      setError('Mật khẩu phải ≥6 ký tự, có ít nhất 1 chữ hoa và 1 ký tự đặc biệt')
+      setLoading(false)
+      return
+    }
+
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
       setError('Mật khẩu xác nhận không khớp')
@@ -192,7 +202,7 @@ export default function RegisterPage() {
                 placeholder="Nhập mật khẩu"
                 disabled={loading}
               />
-              <p className="mt-1 text-xs text-gray-500">Mật khẩu phải có ít nhất 6 ký tự</p>
+            <p className="mt-1 text-xs text-gray-500">Tối thiểu 6 ký tự, có ít nhất 1 chữ hoa và 1 ký tự đặc biệt</p>
             </div>
 
             {/* Confirm Password Field */}

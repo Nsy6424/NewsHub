@@ -165,28 +165,6 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {/* Divider */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-3 bg-white text-gray-400">hoặc</span>
-              </div>
-            </div>
-
-            {/* Back to Home */}
-            <div className="text-center">
-              <Link
-                href="/"
-                className="inline-flex items-center text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Quay về NewsHub
-              </Link>
-            </div>
           </div>
         </div>
 

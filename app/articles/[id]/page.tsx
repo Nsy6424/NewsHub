@@ -197,6 +197,7 @@ export default function ArticleDetailPage() {
               src={article.image_url}
               alt={article.title}
               fill
+              unoptimized
               className="object-cover"
             />
           </div>
@@ -244,7 +245,7 @@ export default function ArticleDetailPage() {
                 <Link key={r.id} href={`/articles/${r.id}`} className="block bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
                   {r.image_url && (
                     <div className="relative h-56 rounded-t-xl overflow-hidden">
-                      <Image src={r.image_url} alt={r.title} fill className="object-cover" />
+                      <Image src={r.image_url} alt={r.title} fill unoptimized className="object-cover" />
                     </div>
                   )}
                   <div className="p-5">

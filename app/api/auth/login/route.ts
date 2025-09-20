@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Set HTTP-only cookie cho token
-    response.cookies.set('auth-token', token, {
+    response.cookies.set('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',

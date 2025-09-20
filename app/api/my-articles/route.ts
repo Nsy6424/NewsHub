@@ -4,6 +4,9 @@ import { verifyAuthToken, isAuthor } from '@/lib/auth'
 
 const prisma = new PrismaClient()
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 // GET - Lấy danh sách bài viết của Author hiện tại
 export async function GET(request: NextRequest) {
   try {
@@ -33,6 +36,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') // 'published', 'draft' (future feature)
     const sortBy = searchParams.get('sortBy') || 'updated_at' // 'updated_at', 'published_at', 'title'
     const sortOrder = searchParams.get('sortOrder') || 'desc' // 'asc', 'desc'
+    const categoryName = searchParams.get('category')
 
     const offset = (page - 1) * limit
 
@@ -40,29 +44,69 @@ export async function GET(request: NextRequest) {
     const where: any = {
       author_id: user.userId
     }
+    // Lọc theo danh mục (theo tên, giống phía client gửi lên)
+    if (categoryName && categoryName !== 'Tất cả') {
+      const category = await prisma.categories.findFirst({ where: { name: categoryName } })
+      if (category) {
+        where.category_id = category.id
+      } else {
+        // Nếu danh mục không tồn tại, trả về rỗng hợp lệ
+        return NextResponse.json({
+          articles: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+            hasNext: false,
+            hasPrev: false
+          },
+          stats: { total_articles: 0, by_category: [] }
+        })
+      }
+    }
 
     if (search) {
-      const normalizedSearch = search
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
+      const term = search.trim()
+      if (term.length > 0) {
+        const orConditions: any[] = [
+          { title: { contains: term, mode: 'insensitive' } },
+        ]
 
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { summary: { contains: search, mode: 'insensitive' } },
-        { content: { contains: search, mode: 'insensitive' } },
-        { slug: { contains: normalizedSearch.replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-'), mode: 'insensitive' } }
-      ]
+        // Chỉ thêm tìm không-dấu qua slug khi KHÔNG có dấu và chỉ gồm chữ/khoảng trắng
+        const nfd = term.normalize('NFD')
+        const hasDiacritics = /[\u0300-\u036f]/.test(nfd)
+        const onlyLettersAndSpaces = /^\p{L}[\p{L}\s]*$/u.test(term)
+        if (!hasDiacritics && onlyLettersAndSpaces) {
+          const normalized = nfd
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .trim()
+          if (normalized.length > 0) {
+            orConditions.push({ slug: { contains: normalized } })
+          }
+        }
+
+        where.OR = orConditions
+      }
     }
 
     // Xây dựng orderBy
-    const orderBy: any = {}
+    let orderBy: any = []
     if (sortBy === 'title') {
-      orderBy.title = sortOrder
+      orderBy = [{ title: sortOrder }]
     } else if (sortBy === 'published_at') {
-      orderBy.published_at = sortOrder
+      orderBy = [{ published_at: sortOrder }]
+    } else if (sortBy === 'updated_at') {
+      orderBy = [{ updated_at: sortOrder }]
     } else {
-      orderBy.updated_at = sortOrder
+      // Mặc định giống trang Reader: ưu tiên priority rồi published_at
+      orderBy = [
+        { priority: 'desc' },
+        { published_at: 'desc' },
+      ]
     }
 
     // Lấy tổng số bài viết
@@ -96,20 +140,32 @@ export async function GET(request: NextRequest) {
     })
 
     // Format response
-    const formattedArticles = articles.map(article => ({
-      id: Number(article.id),
-      slug: article.slug,
-      title: article.title,
-      summary: article.summary,
-      image_url: article.image_url,
-      priority: article.priority,
-      published_at: article.published_at.toISOString(),
-      created_at: article.created_at.toISOString(),
-      updated_at: article.updated_at.toISOString(),
-      category: article.category.name,
-      category_slug: article.category.slug,
-      category_id: Number(article.category.id)
-    }))
+    const formattedArticles = articles.map(article => {
+      const publishedAtIso = article.published_at
+        ? new Date(article.published_at).toISOString()
+        : new Date(article.created_at).toISOString()
+      const createdAtIso = article.created_at
+        ? new Date(article.created_at).toISOString()
+        : publishedAtIso
+      const updatedAtIso = article.updated_at
+        ? new Date(article.updated_at).toISOString()
+        : createdAtIso
+
+      return {
+        id: Number(article.id),
+        slug: article.slug,
+        title: article.title,
+        summary: article.summary,
+        image_url: article.image_url,
+        priority: article.priority,
+        published_at: publishedAtIso,
+        created_at: createdAtIso,
+        updated_at: updatedAtIso,
+        category: article.category.name,
+        category_slug: article.category.slug,
+        category_id: Number(article.category.id)
+      }
+    })
 
     // Thống kê tổng quan
     const stats = await prisma.articles.groupBy({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 
 export const runtime = 'nodejs'
 
@@ -26,11 +27,21 @@ export async function POST(request: NextRequest) {
       await fs.mkdir(uploadDir, { recursive: true })
     } catch {}
 
-    const ext = file.name.split('.').pop() || 'jpg'
-    const baseName = file.name.replace(/[^a-zA-Z0-9-_\.]/g, '').split('.')[0] || 'image'
-    const filename = `${baseName}-${Date.now()}.${ext}`
+    // Dùng nguyên tên file (đã làm sạch) để URL luôn giữ nguyên nếu cùng tên
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+    const baseNameRaw = file.name.replace(/[^a-zA-Z0-9-_\.]/g, '') || 'image'
+    const baseNameOnly = baseNameRaw.split('.')[0] || 'image'
+    const filename = `${baseNameOnly}.${ext}`
     const filePath = path.join(uploadDir, filename)
 
+    // Nếu đã tồn tại: dùng lại URL cũ (không tạo file mới)
+    try {
+      await fs.access(filePath)
+      const url = `/uploads/${filename}`
+      return NextResponse.json({ url })
+    } catch {}
+
+    // Chưa tồn tại: ghi file mới (ghi đè nếu cần theo tên cố định)
     await fs.writeFile(filePath, buffer)
 
     const url = `/uploads/${filename}`
