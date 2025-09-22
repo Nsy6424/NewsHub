@@ -110,7 +110,7 @@ export default function RegisterPage() {
               Tạo Tài Khoản
             </h1>
             <p className="text-gray-600">
-              Tham gia NewsHub để đọc và viết bài
+              Tham gia Sy's News để đọc và viết bài
             </p>
           </div>
 
@@ -280,7 +280,7 @@ export default function RegisterPage() {
               href="/"
               className="text-sm text-gray-500 hover:text-gray-700"
             >
-              ← Quay về NewsHub
+              ← Quay về Sy's News
             </Link>
           </div>
         </div>

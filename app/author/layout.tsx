@@ -39,7 +39,9 @@ export default function AuthorLayout({ children }: { children: React.ReactNode }
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </div>
-            <h1 className="text-lg font-semibold">NewsHub</h1>
+            <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent tracking-wide">
+              Sy's News
+            </h1>
           </Link>
 
           <nav className="flex items-center space-x-6 relative">

@@ -230,7 +230,9 @@ export default function Home() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link href="/" className="flex items-center">
-              <h1 className="text-2xl font-bold text-blue-600">NewsHub</h1>
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent tracking-wide">
+                Sy's News
+              </h1>
             </Link>
 
             {/* Search Bar */}
